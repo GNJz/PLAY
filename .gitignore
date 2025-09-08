@@ -15,3 +15,4 @@ runs/BACKUP/
 *.tar
 *.tar.gz
 summarize_fine.py
+sweep_turb.sh
