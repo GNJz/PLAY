@@ -1,0 +1,1 @@
+Relaxed threshold: theta_active_thresh = 0.004

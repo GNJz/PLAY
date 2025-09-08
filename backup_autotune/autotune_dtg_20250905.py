@@ -1,0 +1,629 @@
+#!/usr/bin/env python3
+"""
+autotune_dtg.py  (clean, fixed)
+- Lightweight orchestrator to explore/exploit DTG controller params
+- Works with: three_body_3d_ns_dtg_v3_3_stable.py
+
+Fixes:
+- Stable CSV schema (fixed FIELDNAMES)
+- Robust append_log/load_log/summarize
+- Added --top_keep to `explore`
+"""
+
+import argparse
+import csv
+import json
+import os
+import random
+import re
+import subprocess
+import sys
+import time
+from dataclasses import dataclass, asdict
+from pathlib import Path
+from typing import Dict, Any, List, Optional, Tuple
+
+# ------------------------------ Utils ------------------------------
+
+def _now_tag() -> str:
+    return time.strftime("%Y%m%d-%H%M%S")
+
+def ensure_dir(p: Path) -> None:
+    p.mkdir(parents=True, exist_ok=True)
+
+def read_params_from_meta(meta_dir: Path) -> Dict[str, Any]:
+    """Try to read args/end_state from any json in meta directory."""
+    if not meta_dir.exists():
+        return {}
+    out: Dict[str, Any] = {}
+    for jf in sorted(meta_dir.glob("*.json")):
+        try:
+            with open(jf, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                out.update(data.get("args", {}))
+                for k in ("beta_dtg","tau_theta","theta_min","theta_max",
+                          "k_ctrl", "k_ctrl_e", "k_nu", "k_nu_ed"):
+                    if k in data:
+                        out[k] = data[k]
+                es = data.get("end_state", {})
+                if isinstance(es, dict):
+                    out["fig8_phase"] = es.get("fig8_phase", out.get("fig8_phase"))
+        except Exception:
+            pass
+    return out
+
+def safe_read_csv(path: Path, usecols: Optional[List[str]] = None) -> Dict[str, List[float]]:
+    """Read selected numeric columns from CSV using csv module (pandas-free)."""
+    out: Dict[str, List[float]] = {}
+    with open(path, "r", newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        cols = usecols or reader.fieldnames or []
+        for c in cols:
+            out[c] = []
+        for row in reader:
+            for c in cols:
+                try:
+                    out[c].append(float(row[c]))
+                except Exception:
+                    pass
+    return out
+
+def compute_theta_rate(t: List[float], theta: List[float]) -> float:
+    if len(t) < 2 or len(theta) < 2:
+        return 0.0
+    dt_accum = 0.0
+    dth_accum = 0.0
+    m = min(len(t), len(theta))
+    for i in range(1, m):
+        dt = t[i] - t[i-1]
+        if dt <= 0:
+            continue
+        dth_accum += abs(theta[i] - theta[i-1])
+        dt_accum += dt
+    return (dth_accum / dt_accum) if dt_accum > 0 else 0.0
+
+# ------------------------------ Scoring ------------------------------
+
+@dataclass
+class ScoreWeights:
+    w_drift: float = 100.0
+    w_theta: float = 1.0
+    w_fig8: float = 1.0
+    fig8_target: float = 1.0
+    drift_floor: float = 0.01
+    hard_fail: float = 0.10
+    # penalties
+    penalty_escape: float = 200.0   # early escape penalty strength
+    penalty_binary: float = 50.0    # binary formation penalty
+
+def score_run(
+    drift_max: float,
+    theta_rate: float,
+    fig8_phase: float,
+    W: ScoreWeights,
+    t_escape: float = float("nan"),
+    ran_tmax: Optional[float] = None,
+    binary: int = 0
+) -> float:
+    # invalid
+    if drift_max != drift_max:
+        return float("inf")
+    # hard fail on huge drift
+    if drift_max > W.hard_fail:
+        return 1e9 + drift_max
+
+    # base cost (lower is better)
+    cost = W.w_drift * max(drift_max, W.drift_floor)
+    if fig8_phase == fig8_phase:  # not NaN
+        cost += W.w_fig8 * abs(fig8_phase - W.fig8_target)
+    cost += -W.w_theta * theta_rate
+
+    # penalties
+    if binary:
+        cost += W.penalty_binary
+    if (t_escape == t_escape) and (ran_tmax is not None) and ran_tmax > 0:
+        frac = t_escape / ran_tmax
+        if frac < 0.9:  # escaped too early
+            cost += W.penalty_escape * (0.9 - frac)
+
+    return float(cost)
+
+# ------------------------------ Runner ------------------------------
+
+@dataclass
+class Param:
+    alpha_dtg: float = 0.6
+    beta_dtg: float = 0.6
+    tau_theta: float = 1.0
+    dtheta_max: float = 0.10
+    theta_min: float = 0.95
+    theta_max: float = 2.0
+    k_ctrl: float = 0.20
+    k_ctrl_e: float = 0.50
+    k_nu: float = 0.0
+    k_nu_ed: float = 0.25
+    nu0: float = 0.002
+    nu_max: float = 0.2
+    dt: float = 0.002
+    tmax: float = 20.0
+    ic: str = "exp2"
+    alpha: float = 1.0
+    dtg: int = 1
+    no_plots: bool = True
+    lyap_light: bool = False
+    adaptive_step: bool = False
+    adapt_r_trigger: float = 0.02
+    adapt_factor: float = 0.3
+    min_max_step: float = 2e-4
+
+    def as_cmd(self, sim_path: str, outdir: Path) -> List[str]:
+        cmd = [
+            sys.executable, sim_path,
+            "--ic", self.ic, "--alpha", str(self.alpha),
+            "--tmax", str(self.tmax), "--dt", str(self.dt),
+            "--dtg", str(self.dtg),
+            "--alpha_dtg", str(self.alpha_dtg),
+            "--beta_dtg", str(self.beta_dtg),
+            "--tau_theta", str(self.tau_theta),
+            "--dtheta_max", str(self.dtheta_max),
+            "--theta_min", str(self.theta_min),
+            "--theta_max", str(self.theta_max),
+            "--k_ctrl", str(self.k_ctrl),
+            "--k_ctrl_e", str(self.k_ctrl_e),
+            "--k_nu", str(self.k_nu),
+            "--k_nu_ed", str(self.k_nu_ed),
+            "--nu0", str(self.nu0),
+            "--nu_max", str(self.nu_max),
+            "--out", str(outdir),
+        ]
+        if self.no_plots: cmd.append("--no_plots")
+        if self.lyap_light: cmd.append("--lyap_light")
+        if self.adaptive_step:
+            cmd += ["--adaptive_step", "--adapt_r_trigger", str(self.adapt_r_trigger),
+                    "--adapt_factor", str(self.adapt_factor), "--min_max_step", str(self.min_max_step)]
+        return cmd
+
+def run_once(sim_path: str, out_root: Path, p: Param) -> Tuple[Optional[Path], str]:
+    tag = _now_tag()
+    run_name = (f"auto_beta{p.beta_dtg:.3f}_tau{p.tau_theta:.3f}_d{p.dtheta_max:.3f}"
+                f"_thmin{p.theta_min:.3f}_kc{p.k_ctrl:.3f}_ke{p.k_ctrl_e:.3f}_knued{p.k_nu_ed:.3f}_{tag}")
+    outdir = out_root / run_name
+    ensure_dir(outdir)
+    cmd = p.as_cmd(sim_path, outdir)
+    try:
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=False)
+        with open(outdir / "stdout.txt", "w", encoding="utf-8") as f:
+            f.write(res.stdout)
+        status = "ok" if res.returncode == 0 else f"retcode={res.returncode}"
+    except Exception as e:
+        status = f"error:{e}"
+    return outdir, status
+
+def evaluate_run(run_dir: Path) -> Dict[str, Any]:
+    data_dir = run_dir / "data"
+    meta_dir = run_dir / "meta"
+    diag_candidates = sorted(data_dir.glob("diagnostics_*.csv"))
+    out: Dict[str, Any] = {
+        "run_dir": str(run_dir),
+        "drift_max": float("nan"),
+        "theta_rate": float("nan"),
+        "fig8_phase": float("nan"),
+        "status": "no_diag",
+        "t_escape": float("nan"),
+        "binary": 0,
+        "lam_top": float("nan"),
+    }
+    if not diag_candidates:
+        # still parse stdout for events
+        _parse_stdout(run_dir, out)
+        return out
+
+    diag = diag_candidates[0]
+    dd = safe_read_csv(diag, usecols=["t", "drift", "theta"])
+    t = dd.get("t", [])
+    drift = dd.get("drift", [])
+    theta = dd.get("theta", [])
+    if drift:
+        out["drift_max"] = float(max(abs(x) for x in drift))
+    out["theta_rate"] = compute_theta_rate(t, theta)
+
+    meta = read_params_from_meta(meta_dir)
+    if "fig8_phase" in meta:
+        try:
+            out["fig8_phase"] = float(meta["fig8_phase"])
+        except Exception:
+            pass
+
+    _parse_stdout(run_dir, out)
+    out["status"] = "ok"
+    return out
+
+def _parse_stdout(run_dir: Path, out: Dict[str, Any]) -> None:
+    """Parse stdout.txt for escape time, binary formation, and Lyapunov."""
+    stdout_path = run_dir / "stdout.txt"
+    if not stdout_path.exists():
+        return
+    try:
+        txt = open(stdout_path, "r", encoding="utf-8", errors="ignore").read()
+        m = re.search(r"\[event\]\s*escape at t≈([0-9.]+)", txt)
+        if m:
+            out["t_escape"] = float(m.group(1))
+        if "binary formation detected" in txt:
+            out["binary"] = 1
+        # Example line: "[Lyapunov(top, light) ≈] 0.795129"
+        m2 = re.search(r"Lyapunov\(top,\s*light\).*?≈\]\s*([0-9.]+)", txt)
+        if m2:
+            out["lam_top"] = float(m2.group(1))
+    except Exception:
+        pass
+
+# ------------------------------ Stable CSV schema ------------------------------
+
+# Keep CSV header stable to avoid misalignment problems
+PARAM_KEYS = [
+    "alpha_dtg","beta_dtg","tau_theta","dtheta_max","theta_min","theta_max",
+    "k_ctrl","k_ctrl_e","k_nu","k_nu_ed",
+    "nu0","nu_max","dt","tmax","ic","alpha","dtg",
+    "no_plots","lyap_light","adaptive_step","adapt_r_trigger","adapt_factor","min_max_step",
+]
+FIELDNAMES = [
+    "phase","status","cost","drift_max","theta_rate","fig8_phase","t_escape","binary",
+    *PARAM_KEYS, "run_dir"
+]
+
+def _row_to_fixed_fields(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Return a new dict that has exactly FIELDNAMES keys."""
+    # Convert everything to simple JSON-serializable values (str/float/int/bool)
+    out: Dict[str, Any] = {}
+    for k in FIELDNAMES:
+        v = row.get(k, "")
+        out[k] = v
+    return out
+
+def append_log(log_csv: Path, row: Dict[str, Any]) -> None:
+    """Append a single row to log CSV using fixed FIELDNAMES."""
+    file_exists = log_csv.exists()
+    with open(log_csv, "a", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=FIELDNAMES, extrasaction="ignore")
+        if not file_exists:
+            writer.writeheader()
+        writer.writerow(_row_to_fixed_fields(row))
+
+def load_log(log_csv: Path) -> List[Dict[str, Any]]:
+    if not log_csv.exists():
+        return []
+    out: List[Dict[str, Any]] = []
+    with open(log_csv, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            # Some CSV readers can inject None key for ragged rows — clean it
+            if None in row:
+                row.pop(None, None)
+            out.append(row)
+    return out
+
+def _safe_float(x: Any, default: float = float("inf")) -> float:
+    """Robust float parser for sorting; returns default if not numeric."""
+    try:
+        return float(x)
+    except Exception:
+        # Try to strip non-numeric chars (for safety)
+        try:
+            s = str(x)
+            s2 = re.sub(r"[^0-9eE+.\-]", "", s)
+            return float(s2) if s2 else default
+        except Exception:
+            return default
+
+# ------------------------------ Search spaces ------------------------------
+
+@dataclass
+class Space:
+    beta_dtg: Tuple[float,float] = (0.30, 0.80)
+    tau_theta: Tuple[float,float] = (0.60, 1.40)
+    dtheta_max: Tuple[float,float] = (0.08, 0.16)
+    theta_min: Tuple[float,float] = (0.90, 0.98)
+    k_ctrl: Tuple[float,float] = (0.15, 0.30)
+    k_ctrl_e: Tuple[float,float] = (0.30, 0.70)
+    k_nu_ed: Tuple[float,float] = (0.15, 0.30)
+
+    def sample_uniform(self, rng: random.Random) -> Dict[str,float]:
+        def U(lo, hi): return rng.uniform(lo, hi)
+        return {
+            "beta_dtg": U(*self.beta_dtg),
+            "tau_theta": U(*self.tau_theta),
+            "dtheta_max": U(*self.dtheta_max),
+            "theta_min": U(*self.theta_min),
+            "k_ctrl": U(*self.k_ctrl),
+            "k_ctrl_e": U(*self.k_ctrl_e),
+            "k_nu_ed": U(*self.k_nu_ed),
+        }
+
+    def mutate(self, base: Dict[str,float], rng: random.Random, sigma_frac: float = 0.25) -> Dict[str,float]:
+        out = {}
+        for k in base.keys():
+            lo, hi = getattr(self, k)
+            span = hi - lo
+            sigma = sigma_frac * span
+            val = rng.gauss(base[k], sigma)
+            val = max(lo, min(hi, val))
+            out[k] = val
+        return out
+
+# ------------------------------ CLI Actions ------------------------------
+
+def act_explore(args):
+    rng = random.Random(args.seed)
+    W = ScoreWeights(
+        w_drift=args.w_drift, w_theta=args.w_theta, w_fig8=args.w_fig8,
+        fig8_target=args.fig8_target, drift_floor=args.drift_floor, hard_fail=args.hard_fail,
+        penalty_escape=args.penalty_escape, penalty_binary=args.penalty_binary
+    )
+    space = Space()
+    out_root = Path(args.out_root); ensure_dir(out_root)
+    log_csv = Path(args.log_csv)
+
+    evaluated: List[Dict[str, Any]] = []
+
+    # initial uniform samples
+    n_init = args.n_init
+    for i in range(n_init):
+        s = space.sample_uniform(rng)
+        p = Param(
+            alpha_dtg=0.6,
+            beta_dtg=s["beta_dtg"],
+            tau_theta=s["tau_theta"],
+            dtheta_max=s["dtheta_max"],
+            theta_min=s["theta_min"],
+            theta_max=2.0,
+            k_ctrl=s["k_ctrl"],
+            k_ctrl_e=s["k_ctrl_e"],
+            k_nu=0.0,
+            k_nu_ed=s["k_nu_ed"],
+            nu0=0.002, nu_max=0.2, dt=0.002, tmax=args.tmax_short,
+            ic="exp2", alpha=1.0, dtg=1,
+            no_plots=True, lyap_light=False, adaptive_step=False
+        )
+        run_dir, status = run_once(args.sim_path, out_root, p)
+        metrics = evaluate_run(run_dir)
+        fig8_phase = float(metrics.get("fig8_phase", float("nan")))
+        drift_max = float(metrics.get("drift_max", float("nan")))
+        theta_rate = float(metrics.get("theta_rate", float("nan")))
+        t_escape = float(metrics.get("t_escape", float("nan")))
+        binary = int(metrics.get("binary", 0))
+        cost = score_run(drift_max, theta_rate, fig8_phase, W,
+                         t_escape=t_escape, ran_tmax=p.tmax, binary=binary)
+        row = {
+            "phase": "explore",
+            "status": status,
+            "cost": cost,
+            "drift_max": drift_max,
+            "theta_rate": theta_rate,
+            "fig8_phase": fig8_phase,
+            "t_escape": t_escape,
+            "binary": binary,
+            **asdict(p),
+            "run_dir": str(run_dir),
+        }
+        append_log(log_csv, row)
+        evaluated.append(row)
+        print(f"[explore {i+1}/{n_init}] cost={cost:.4g} drift={drift_max:.3g} theta_rate={theta_rate:.3g} "
+              f"fig8={fig8_phase:.3g} → {run_dir.name}")
+
+    # iterative local search
+    for it in range(args.iters):
+        evaluated.sort(key=lambda r: float(r["cost"]))
+        parents = evaluated[:max(3, n_init//4)]
+        n_children = max(1, n_init//2)
+        for j in range(n_children):
+            base = random.choice(parents)
+            seed_params = {
+                "beta_dtg": float(base["beta_dtg"]),
+                "tau_theta": float(base["tau_theta"]),
+                "dtheta_max": float(base["dtheta_max"]),
+                "theta_min": float(base["theta_min"]),
+                "k_ctrl": float(base["k_ctrl"]),
+                "k_ctrl_e": float(base["k_ctrl_e"]),
+                "k_nu_ed": float(base["k_nu_ed"]),
+            }
+            s = space.mutate(seed_params, rng, sigma_frac=args.sigma_frac)
+            p = Param(
+                alpha_dtg=0.6,
+                beta_dtg=s["beta_dtg"],
+                tau_theta=s["tau_theta"],
+                dtheta_max=s["dtheta_max"],
+                theta_min=s["theta_min"],
+                theta_max=2.0,
+                k_ctrl=s["k_ctrl"],
+                k_ctrl_e=s["k_ctrl_e"],
+                k_nu=0.0,
+                k_nu_ed=s["k_nu_ed"],
+                nu0=0.002, nu_max=0.2, dt=0.002, tmax=args.tmax_short,
+                ic="exp2", alpha=1.0, dtg=1,
+                no_plots=True, lyap_light=False, adaptive_step=False
+            )
+            run_dir, status = run_once(args.sim_path, out_root, p)
+            metrics = evaluate_run(run_dir)
+            fig8_phase = float(metrics.get("fig8_phase", float("nan")))
+            drift_max = float(metrics.get("drift_max", float("nan")))
+            theta_rate = float(metrics.get("theta_rate", float("nan")))
+            t_escape = float(metrics.get("t_escape", float("nan")))
+            binary = int(metrics.get("binary", 0))
+            cost = score_run(drift_max, theta_rate, fig8_phase, W,
+                             t_escape=t_escape, ran_tmax=p.tmax, binary=binary)
+            row = {
+                "phase": f"explore@{it+1}",
+                "status": status,
+                "cost": cost,
+                "drift_max": drift_max,
+                "theta_rate": theta_rate,
+                "fig8_phase": fig8_phase,
+                "t_escape": t_escape,
+                "binary": binary,
+                **asdict(p),
+                "run_dir": str(run_dir),
+            }
+            append_log(log_csv, row)
+            evaluated.append(row)
+            print(f"[mut {it+1}:{j+1}/{n_children}] cost={cost:.4g} drift={drift_max:.3g} theta_rate={theta_rate:.3g} "
+                  f"fig8={fig8_phase:.3g} → {run_dir.name}")
+
+    # write tops
+    evaluated.sort(key=lambda r: float(r["cost"]))
+    top_path = Path(args.top_csv)
+    with open(top_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
+        writer.writeheader()
+        for r in evaluated[:args.top_keep]:
+            writer.writerow(_row_to_fixed_fields(r))
+    print(f"\n[done] wrote leaderboard: {top_path}")
+
+def act_exploit(args):
+    log_csv = Path(args.log_csv)
+    rows = load_log(log_csv)
+    if not rows:
+        print("No log rows. Run explore first."); return
+    rows.sort(key=lambda r: _safe_float(r.get("cost", float("inf"))))
+    top = rows[:args.top_k]
+    out_root = Path(args.out_root); ensure_dir(out_root)
+
+    for i, r in enumerate(top, 1):
+        p = Param(
+            alpha_dtg=0.6,
+            beta_dtg=float(r["beta_dtg"]),
+            tau_theta=float(r["tau_theta"]),
+            dtheta_max=float(r["dtheta_max"]),
+            theta_min=float(r["theta_min"]),
+            theta_max=2.0,
+            k_ctrl=float(r["k_ctrl"]),
+            k_ctrl_e=float(r["k_ctrl_e"]),
+            k_nu=0.0,
+            k_nu_ed=float(r["k_nu_ed"]),
+            nu0=0.002, nu_max=0.2, dt=0.002, tmax=args.tmax_long,
+            ic="exp2", alpha=1.0, dtg=1,
+            no_plots=False, lyap_light=True, adaptive_step=True
+        )
+        run_dir, status = run_once(args.sim_path, out_root, p)
+        metrics = evaluate_run(run_dir)
+        fig8_phase = float(metrics.get("fig8_phase", float("nan")))
+        drift_max = float(metrics.get("drift_max", float("nan")))
+        theta_rate = float(metrics.get("theta_rate", float("nan")))
+        t_escape = float(metrics.get("t_escape", float("nan")))
+        binary = int(metrics.get("binary", 0))
+
+        W = ScoreWeights(
+            w_drift=args.w_drift, w_theta=args.w_theta, w_fig8=args.w_fig8,
+            fig8_target=args.fig8_target, drift_floor=args.drift_floor, hard_fail=args.hard_fail,
+            penalty_escape=args.penalty_escape, penalty_binary=args.penalty_binary
+        )
+        cost = score_run(drift_max, theta_rate, fig8_phase, W,
+                         t_escape=t_escape, ran_tmax=p.tmax, binary=binary)
+        row = {
+            "phase": "exploit",
+            "status": status,
+            "cost": cost,
+            "drift_max": drift_max,
+            "theta_rate": theta_rate,
+            "fig8_phase": fig8_phase,
+            "t_escape": t_escape,
+            "binary": binary,
+            **asdict(p),
+            "run_dir": str(run_dir),
+        }
+        append_log(log_csv, row)
+        print(f"[exploit {i}/{len(top)}] cost={cost:.4g} drift={drift_max:.3g} theta_rate={theta_rate:.3g} "
+              f"fig8={fig8_phase:.3g} → {run_dir.name}")
+
+def act_summarize(args):
+    log_csv = Path(args.log_csv)
+    rows = load_log(log_csv)
+    if not rows:
+        print("No log yet."); return
+    rows.sort(key=lambda r: _safe_float(r.get("cost", float("inf"))))
+
+    # write sorted full log
+    out = Path(args.sorted_csv)
+    with open(out, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
+        writer.writeheader()
+        for r in rows:
+            writer.writerow(_row_to_fixed_fields(r))
+
+    # print top-k
+    k = min(args.top_k, len(rows))
+    print(f"Top {k} (lower cost is better):")
+    for i in range(k):
+        r = rows[i]
+        def _getf(key, default=float("nan")):
+            return _safe_float(r.get(key, default), default=default)
+        def _getf_print(key, default=float("nan")):
+            v = _safe_float(r.get(key, default), default=default)
+            return v
+        print(
+            f"{i+1:2d}. cost={_getf('cost'):.4g} drift={_getf('drift_max'):.3g} "
+            f"theta={_getf('theta_rate'):.3g} fig8={_getf('fig8_phase'):.3g} "
+            f"beta={_getf_print('beta_dtg'):.3f} tau={_getf_print('tau_theta'):.3f} dth={_getf_print('dtheta_max'):.3f} "
+            f"thmin={_getf_print('theta_min'):.3f} kc={_getf_print('k_ctrl'):.3f} ke={_getf_print('k_ctrl_e'):.3f} "
+            f"knued={_getf_print('k_nu_ed'):.3f} esc={_getf_print('t_escape'):.2f} bin={int(_getf_print('binary', 0))}"
+        )
+    print(f"\n[done] wrote sorted log: {out}")
+
+# ------------------------------ CLI ------------------------------
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(description="Auto-tune DTG controller parameters")
+    p.add_argument("--sim_path", default="three_body_3d_ns_dtg_v3_3_stable.py",
+                   help="Path to simulator script")
+    p.add_argument("--out_root", default="runs/auto", help="Root output directory for runs")
+    p.add_argument("--log_csv", default="autotune_log.csv", help="CSV to append results")
+    p.add_argument("--top_csv", default="autotune_top.csv", help="CSV of current leaderboard")
+    p.add_argument("--sorted_csv", default="autotune_log_sorted.csv", help="Sorted full log")
+
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    ex = sub.add_parser("explore", help="Initial search + local mutations")
+    ex.add_argument("--n_init", type=int, default=16, help="Initial uniform samples")
+    ex.add_argument("--iters", type=int, default=3, help="Mutation iterations")
+    ex.add_argument("--sigma_frac", type=float, default=0.25, help="Mutation sigma fraction of range")
+    ex.add_argument("--seed", type=int, default=42)
+    ex.add_argument("--tmax_short", type=float, default=20.0)
+    ex.add_argument("--top_keep", type=int, default=50, help="write top-N rows to leaderboard")
+    # scoring weights
+    ex.add_argument("--w_drift", type=float, default=100.0)
+    ex.add_argument("--w_theta", type=float, default=1.0)
+    ex.add_argument("--w_fig8", type=float, default=1.0)
+    ex.add_argument("--fig8_target", type=float, default=1.0)
+    ex.add_argument("--drift_floor", type=float, default=0.01)
+    ex.add_argument("--hard_fail", type=float, default=0.10)
+    ex.add_argument("--penalty_escape", type=float, default=200.0)
+    ex.add_argument("--penalty_binary", type=float, default=50.0)
+    ex.set_defaults(func=act_explore)
+
+    ep = sub.add_parser("exploit", help="Long-run validate top candidates")
+    ep.add_argument("--top_k", type=int, default=3)
+    ep.add_argument("--tmax_long", type=float, default=60.0)
+    # scoring weights
+    ep.add_argument("--w_drift", type=float, default=100.0)
+    ep.add_argument("--w_theta", type=float, default=1.0)
+    ep.add_argument("--w_fig8", type=float, default=1.0)
+    ep.add_argument("--fig8_target", type=float, default=1.0)
+    ep.add_argument("--drift_floor", type=float, default=0.01)
+    ep.add_argument("--hard_fail", type=float, default=0.10)
+    ep.add_argument("--penalty_escape", type=float, default=200.0)
+    ep.add_argument("--penalty_binary", type=float, default=50.0)
+    ep.set_defaults(func=act_exploit)
+
+    sm = sub.add_parser("summarize", help="Print leaderboard and write sorted log")
+    sm.add_argument("--top_k", type=int, default=10)
+    sm.set_defaults(func=act_summarize)
+
+    return p
+
+def main(argv=None):
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    args.func(args)
+
+if __name__ == "__main__":
+    main()

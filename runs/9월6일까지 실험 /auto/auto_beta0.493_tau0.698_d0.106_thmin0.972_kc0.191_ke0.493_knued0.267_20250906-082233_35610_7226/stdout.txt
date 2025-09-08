@@ -1,0 +1,3 @@
+[OK] CSV   : runs/auto/auto_beta0.493_tau0.698_d0.106_thmin0.972_kc0.191_ke0.493_knued0.267_20250906-082233_35610_7226/data/threebody3d_exp2_a1.0_dtg1.csv
+[OK] DIAG  : runs/auto/auto_beta0.493_tau0.698_d0.106_thmin0.972_kc0.191_ke0.493_knued0.267_20250906-082233_35610_7226/data/diagnostics_exp2_a1.0_dtg1.csv
+[Judgment] Partial Success (met 2/4) | drift_max=0.0075 | theta_rate=0.0001 rad/s (False) | planar=False, fig8_phase=0.936 | lam_top=nan

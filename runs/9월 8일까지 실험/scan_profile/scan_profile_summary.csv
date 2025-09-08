@@ -1,0 +1,7 @@
+run_tag,nu,dtg,drift_max,drift_rms,rmin_min,escaped,collided,t_escape,t_collision,csv_diag
+baseline_nu0.001,0.001,0,0.0121252350347145,0.006986616734650901,0.0010000000000038,False,True,,5.773093983442088,runs/scan_profile/baseline_nu0.001/data/diagnostics_exp2_a1.0_dtg0.csv
+baseline_nu0.003,0.003,0,0.0484044813373954,0.028693793463709535,0.0009999999999777,False,True,,7.68410325782611,runs/scan_profile/baseline_nu0.003/data/diagnostics_exp2_a1.0_dtg0.csv
+baseline_nu0.006,0.006,0,0.0959858170184033,0.0545468851732166,0.0010000000000007,False,True,,7.433704427305706,runs/scan_profile/baseline_nu0.006/data/diagnostics_exp2_a1.0_dtg0.csv
+dtg_nu0.001,0.001,1,0.002543162418093,0.002272819010064232,0.0010000000000156,False,True,,5.959342494612204,runs/scan_profile/dtg_nu0.001/data/diagnostics_exp2_a1.0_dtg1.csv
+dtg_nu0.003,0.003,1,0.0076332147061229,0.006949174757258881,0.0010000000000124,False,True,,7.010000713574496,runs/scan_profile/dtg_nu0.003/data/diagnostics_exp2_a1.0_dtg1.csv
+dtg_nu0.006,0.006,1,0.0178831381482151,0.01654415214091717,0.0010000000000147,False,True,,9.062273848899308,runs/scan_profile/dtg_nu0.006/data/diagnostics_exp2_a1.0_dtg1.csv

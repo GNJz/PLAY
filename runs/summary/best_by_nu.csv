@@ -1,0 +1,5 @@
+group_tag,nu,drift_rms_base,drift_rms_dtg,improve_pct,collided_dtg,t_collision_dtg,diag_base,diag_dtg,ic_base,ic_dtg
+scan_driftonly,0.001,0.0144527109268286,0.0023820132745198,83.5185711069738,False,,runs/scan_driftonly/baseline_nu0.001/data/diagnostics_exp2_a1.0_dtg0.csv,runs/scan_driftonly/dtg_nu0.001/data/diagnostics_exp2_a1.0_dtg1.csv,exp2,exp2
+out,0.003,0.076116561804104,0.0012739807152883,98.32627658804778,False,,runs/out/baseline_nu0.003/data/diagnostics_exp2_a1.0_dtg0.csv,runs/out/smoke/data/diagnostics_exp2_a1.0_dtg1.csv,exp2,exp2
+out,0.004,0.1031131905750252,0.1031131906262914,-4.9718345031656066e-08,False,,runs/out/baseline_nu0.004/data/diagnostics_exp2_a1.0_dtg0.csv,runs/out/dtg_nu0.004/data/diagnostics_exp2_a1.0_dtg1.csv,exp2,exp2
+scan_driftonly,0.006,0.0921937277417769,0.0166042762707486,81.9897983545528,False,,runs/scan_driftonly/baseline_nu0.006/data/diagnostics_exp2_a1.0_dtg0.csv,runs/scan_driftonly/dtg_nu0.006/data/diagnostics_exp2_a1.0_dtg1.csv,exp2,exp2

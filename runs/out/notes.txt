@@ -1,0 +1,1 @@
+[best] eps=3.0e-4, center_k=0.0025, nu0≈0.0024, k_ctrl=0.10, k_ctrl_e=0.10 → escaped=False, binary=True, hold≈37.2s, rmin≈0.022, drift_end≈-0.40

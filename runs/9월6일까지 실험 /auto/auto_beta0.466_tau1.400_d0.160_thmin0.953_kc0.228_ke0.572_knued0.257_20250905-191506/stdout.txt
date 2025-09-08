@@ -1,0 +1,4 @@
+[OK] CSV   : runs/auto/auto_beta0.466_tau1.400_d0.160_thmin0.953_kc0.228_ke0.572_knued0.257_20250905-191506/data/threebody3d_exp2_a1.0_dtg1.csv
+[OK] DIAG  : runs/auto/auto_beta0.466_tau1.400_d0.160_thmin0.953_kc0.228_ke0.572_knued0.257_20250905-191506/data/diagnostics_exp2_a1.0_dtg1.csv
+[event] collision at t≈29.860
+[Judgment] Failure (met 1/4) | drift_max=0.00777 | theta_rate=0.0002 rad/s (False) | planar=False, fig8_phase=1.391 | lam_top=nan

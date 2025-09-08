@@ -1,0 +1,8 @@
+{
+    "timestamp": "2025-09-02_17-25-28",
+    "total_spikes_baseline": 0,
+    "total_spikes_ig_on": 86,
+    "alpha_baseline": 1.0,
+    "alpha_ig_on": 0.7,
+    "duration_sec": 1.0
+}

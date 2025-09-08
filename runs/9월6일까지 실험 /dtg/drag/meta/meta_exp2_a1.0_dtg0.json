@@ -1,0 +1,41 @@
+{
+  "ic_mode": "exp2",
+  "alpha": 1.0,
+  "t_max": 20.0,
+  "dt": 0.002,
+  "G": 1.0,
+  "masses": [
+    1.0,
+    1.0,
+    1.0
+  ],
+  "nu0": 0.01,
+  "nu_max": 1.0,
+  "turb_coeff": 0.0,
+  "use_dtg": false,
+  "theta0": 1.0,
+  "alpha_dtg": 0.7,
+  "beta_dtg": 0.5,
+  "b_dtg": 0.0,
+  "tau_theta": 1.0,
+  "k_nu": 0.0,
+  "k_ctrl": 0.0,
+  "lyap_const": 0.0,
+  "E0": -2.0337499999989372,
+  "outputs": {
+    "csv": "runs/drag/data/threebody3d_exp2_a1.0_dtg0.csv",
+    "fig3d": "runs/drag/figures/threebody3d_exp2_a1.0_dtg0.png",
+    "fig_xy": "runs/drag/figures/xy_exp2_a1.0_dtg0.png",
+    "drift": "runs/drag/figures/energy_drift_exp2_a1.0_dtg0.png",
+    "theta": "runs/drag/figures/theta_exp2_a1.0_dtg0.png"
+  },
+  "diagnostics": {
+    "COM_t0": 0.0,
+    "P_t0": 0.3354101966249685,
+    "COM_tT": 2.0266517917391704,
+    "P_tT": 0.27461064287280607,
+    "planar": false,
+    "zmax": 0.9966280955866779,
+    "fig8_similarity": 2.1214680750355335
+  }
+}

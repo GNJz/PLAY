@@ -1,0 +1,6 @@
+[Lyapunov(top, light) ≈] 0.700492
+[OK] CSV   : runs/auto/auto_beta0.726_tau0.600_d0.118_thmin0.980_kc0.166_ke0.498_knued0.184_20250906-083944_39068_3609/data/threebody3d_exp2_a1.0_dtg1.csv
+[OK] DIAG  : runs/auto/auto_beta0.726_tau0.600_d0.118_thmin0.980_kc0.166_ke0.498_knued0.184_20250906-083944_39068_3609/data/diagnostics_exp2_a1.0_dtg1.csv
+[event] collision at t≈32.000
+[info] binary formation detected (any pair r<0.5, hold≥1.0s)
+[Judgment] Failure (met 1/4) | drift_max=0.758 | theta_rate=0.0114 rad/s (True) | planar=False, fig8_phase=1.015 | lam_top=0.700
