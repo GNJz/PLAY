@@ -1,5 +1,0 @@
-[OK] CSV   : runs/auto/auto_beta0.470_tau0.807_d0.137_thmin0.947_kc0.182_ke0.345_knued0.286_20250906-082440_35717_1372/data/threebody3d_exp2_a1.0_dtg1.csv
-[OK] DIAG  : runs/auto/auto_beta0.470_tau0.807_d0.137_thmin0.947_kc0.182_ke0.345_knued0.286_20250906-082440_35717_1372/data/diagnostics_exp2_a1.0_dtg1.csv
-[event] escape at t≈40.991
-[info] binary formation detected (any pair r<0.5, hold≥1.0s)
-[Judgment] Failure (met 1/4) | drift_max=0.007 | theta_rate=0.0001 rad/s (False) | planar=False, fig8_phase=1.098 | lam_top=nan

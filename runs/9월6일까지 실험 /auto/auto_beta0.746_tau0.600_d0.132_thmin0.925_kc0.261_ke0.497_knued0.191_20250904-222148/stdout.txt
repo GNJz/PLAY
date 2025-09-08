@@ -1,3 +1,0 @@
-[OK] CSV   : runs/auto/auto_beta0.746_tau0.600_d0.132_thmin0.925_kc0.261_ke0.497_knued0.191_20250904-222148/data/threebody3d_exp2_a1.0_dtg1.csv
-[OK] DIAG  : runs/auto/auto_beta0.746_tau0.600_d0.132_thmin0.925_kc0.261_ke0.497_knued0.191_20250904-222148/data/diagnostics_exp2_a1.0_dtg1.csv
-[Judgment] Failure (met 1/4) | drift_max=0.0104 | theta_rate=0.0003 rad/s (False) | planar=False, fig8_phase=1.524 | lam_top=nan

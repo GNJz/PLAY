@@ -1,5 +1,0 @@
-out,error,esc,bin,hold,rmin_min,drift_end,gate_ratio
-runs/out/long1800_norecenter,[Errno 2] No such file or directory: 'runs/out/long1800_norecenter/data/diagnostics_exp2_a1.0_dtg1.csv',,,,,,
-runs/out/long1800_recent60_mom,[Errno 2] No such file or directory: 'runs/out/long1800_recent60_mom/data/diagnostics_exp2_a1.0_dtg1.csv',,,,,,
-runs/out/longrun600_gf0.94_nu00218_bh15,,True,True,372.156,0.0083929543327921,63.50364892161678,
-runs/out/longrun1200_nu00218_bh15,,True,True,372.156,0.0047216755814038,2.1244372742697633,

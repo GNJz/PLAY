@@ -1,6 +1,0 @@
-[Lyapunov(top, light) ≈] 0.519678
-[OK] CSV   : runs/auto/auto_beta0.388_tau0.710_d0.102_thmin0.914_kc0.258_ke0.692_knued0.281_20250906-145107_48635_6480/data/threebody3d_exp2_a1.0_dtg1.csv
-[OK] DIAG  : runs/auto/auto_beta0.388_tau0.710_d0.102_thmin0.914_kc0.258_ke0.692_knued0.281_20250906-145107_48635_6480/data/diagnostics_exp2_a1.0_dtg1.csv
-[event] escape at t≈48.974
-[info] binary formation detected (any pair r<0.5, hold≥1.0s)
-[Judgment] Failure (met 0/4) | drift_max=0.697 | theta_rate=0.0017 rad/s (False) | planar=False, fig8_phase=1.263 | lam_top=0.520

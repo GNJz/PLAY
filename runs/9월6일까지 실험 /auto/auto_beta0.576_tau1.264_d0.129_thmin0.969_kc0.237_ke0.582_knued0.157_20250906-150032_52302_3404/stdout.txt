@@ -1,4 +1,0 @@
-[Lyapunov(top, light) ≈] 0.750517
-[OK] CSV   : runs/auto/auto_beta0.576_tau1.264_d0.129_thmin0.969_kc0.237_ke0.582_knued0.157_20250906-150032_52302_3404/data/threebody3d_exp2_a1.0_dtg1.csv
-[OK] DIAG  : runs/auto/auto_beta0.576_tau1.264_d0.129_thmin0.969_kc0.237_ke0.582_knued0.157_20250906-150032_52302_3404/data/diagnostics_exp2_a1.0_dtg1.csv
-[Judgment] Failure (met 1/4) | drift_max=0.892 | theta_rate=0.0147 rad/s (True) | planar=False, fig8_phase=1.442 | lam_top=0.751
