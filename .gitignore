@@ -1,5 +1,16 @@
 __pycache__/
 *.pyc
 .DS_Store
-runs/**/threebody3d_*.csv
-runs/**/diagnostics_*.csv
+
+# 전체 runs는 무시하고, summary만 추적
+runs/**
+!runs/summary/
+!runs/summary/*.csv
+!runs/summary/*.md
+
+# 백업/대용량 산출물 무시
+runs/BACKUP/
+*.zip
+*.pack
+*.tar
+*.tar.gz
