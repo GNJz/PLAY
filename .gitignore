@@ -14,3 +14,4 @@ runs/BACKUP/
 *.pack
 *.tar
 *.tar.gz
+summarize_fine.py
